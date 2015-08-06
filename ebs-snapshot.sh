@@ -21,7 +21,7 @@ set -o pipefail
 # - The script will then delete all associated snapshots taken by the script that are older than 7 days
 #
 # DISCLAIMER: Hey, this script deletes snapshots (though only the ones that it creates)!
-# Make sure that you undestand how the script works. No responsibility accepted in event of accidental data loss.
+# Make sure that you understand how the script works. No responsibility accepted in event of accidental data loss.
 #
 
 
@@ -45,7 +45,8 @@ set -o pipefail
 	#                "ec2:DescribeSnapshotAttribute",
 	#                "ec2:DescribeSnapshots",
 	#                "ec2:DescribeVolumeAttribute",
-	#                "ec2:DescribeVolumes"
+	#                "ec2:DescribeVolumes",
+	#				 "ec2:DescribeTags"
 	#            ],
 	#            "Resource": [
 	#                "*"
@@ -92,8 +93,9 @@ set -o pipefail
 ## Variable Declartions ##
 
 # Get Instance Details
-instance_id=$(wget -q -O- http://169.254.169.254/latest/meta-data/instance-id)
-region=$(wget -q -O- http://169.254.169.254/latest/meta-data/placement/availability-zone | sed -e 's/\([1-9]\).$/\1/g')
+#Uncomment this to determine region automatically
+#region=$(wget -q -O- http://169.254.169.254/latest/meta-data/placement/availability-zone | sed -e 's/\([1-9]\).$/\1/g')
+region=us-west-2
 
 # Set Logging Options
 logfile="/var/log/ebs-snapshot.log"
@@ -134,16 +136,22 @@ prerequisite_check() {
 # Function: Snapshot all volumes attached to this instance.
 snapshot_volumes() {
 	for volume_id in $volume_list; do
-		log "Volume ID is $volume_id"
-
+		
 		# Get the attched device name to add to the description so we can easily tell which volume this is.
 		device_name=$(aws ec2 describe-volumes --output=text --volume-ids $volume_id --query 'Volumes[0].{Devices:Attachments[0].Device}')
 
-		# Take a snapshot of the current volume, and capture the resulting snapshot ID
-		snapshot_description="$(hostname)-$device_name-backup-$(date +%Y-%m-%d)"
+		# Get the instanceId for this volume
+		instance_id=$(aws ec2 describe-volumes --output=text --volume-ids $volume_id --query 'Volumes[0].{Devices:Attachments[0].InstanceId}')
 
-		snapshot_id=$(aws ec2 create-snapshot --region $region --output=text --description $snapshot_description --volume-id $volume_id --query SnapshotId)
-		log "New snapshot is $snapshot_id"
+		# Get the instance tag name for this volume
+		instance_name=$(aws ec2 describe-tags --filters Name=resource-id,Values=$instance_id Name=key,Values=Name --query 'Tags[0].Value' --output=text)
+
+		# Take a snapshot of the current volume, and capture the resulting snapshot ID
+		snapshot_description="$(date +%Y-%m-%d) $instance_name:$device_name-backup"
+
+		# Create snapshot and return ID
+		snapshot_id=$(aws ec2 create-snapshot --region $region --description \""${snapshot_description}\"" --output=text --volume-id $volume_id --query SnapshotId)
+		log "New snapshot created for $instance_name with Volume ID $volume_id and snapshot ID $snapshot_id"
 	 
 		# Add a "CreatedBy:AutomatedBackup" tag to the resulting snapshot.
 		# Why? Because we only want to purge snapshots taken by the script later, and not delete snapshots manually taken.
@@ -173,13 +181,49 @@ cleanup_snapshots() {
 }	
 
 
+get_my_volumes () {
+		log "Getting volumes attached to this instance"
+		# Grab all volume IDs attached to this instance
+		instance_id=$(wget -q -O- http://169.254.169.254/latest/meta-data/instance-id)
+		volume_list=$(aws ec2 describe-volumes --region $region --filters Name=attachment.instance-id,Values=$instance_id --query Volumes[].VolumeId --output text)
+		log "Found: $volume_list"	
+}
+
+
+get_all_volumes () {
+		log "Getting volumes attached to all instances"
+		# Grab all volume IDs attached to all instances
+		volume_list=$(aws ec2 describe-volumes --region $region --query Volumes[].VolumeId --output text)
+		log "Found: $volume_list"
+}
+
+
+
+
+
+
+
 ## SCRIPT COMMANDS ##
 
 log_setup
 prerequisite_check
 
-# Grab all volume IDs attached to this instance
-volume_list=$(aws ec2 describe-volumes --region $region --filters Name=attachment.instance-id,Values=$instance_id --query Volumes[].VolumeId --output text)
+
+
+#See if a parameter exists without throwing an unbound variable error
+if [ -n "${1-}" ]
+then
+	#if you specified a parameter of "all", get all volumes
+	if [ "$1" == "all" ]
+	then
+		get_all_volumes
+	else
+		get_my_volumes
+	fi
+else
+	get_my_volumes
+fi
+
 
 snapshot_volumes
 cleanup_snapshots
