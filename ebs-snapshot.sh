@@ -9,7 +9,11 @@ set -o pipefail
 
 ## Automatic EBS Volume Snapshot Creation & Clean-Up Script
 #
-# Written by Casey Labs Inc. (https://www.caseylabs.com)
+# Forked by Kris Linquist (http://www.linquist.net) to allow for backing up of all instances. 
+#
+# Forked from:   https://github.com/CaseyLabs/aws-ec2-ebs-automatic-snapshot-bash
+#
+# Originally ritten by Casey Labs Inc. (https://www.caseylabs.com)
 # Casey Labs - Contact us for all your Amazon Web Services Consulting needs!
 #
 # Additonal credits: Log function by Alan Franzoni; Pre-req check by Colin Johnson
@@ -86,7 +90,9 @@ set -o pipefail
 	# (You will have to specify the location of the AWS CLI Config file)
 	#
 	# AWS_CONFIG_FILE="/root/.aws/config"
-	# 00 06 * * *     root    /opt/aws/ebs-snapshot.sh
+	# 00 06 * * *     root    /opt/aws/ebs-snapshot.sh all
+	#
+	# The optional "all" command line parameter will back up all of your instances (vs just the current host)
 
 
 
